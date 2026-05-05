@@ -1,13 +1,42 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
+// Beat Labeling Studio schema (PLAN.md §131)
+// docs: https://pris.ly/d/prisma-schema
 
 generator client {
   provider = "prisma-client"
-  output   = "../node_modules/.prisma/client"
+  output   = "../lib/db/generated"
 }
 
 datasource db {
   provider = "sqlite"
+}
+
+model Track {
+  spotifyId   String   @id
+  name        String
+  artist      String
+  album       String?
+  durationMs  Int
+  firstSeenAt DateTime @default(now())
+  takes       Take[]
+}
+
+model Take {
+  id                  Int      @id @default(autoincrement())
+  trackId             String
+  track               Track    @relation(fields: [trackId], references: [spotifyId])
+  granularity         String
+  source              String
+  calibrationOffsetMs Float?
+  notes               String?
+  createdAt           DateTime @default(now())
+  markers             Marker[]
+}
+
+model Marker {
+  id          Int    @id @default(autoincrement())
+  takeId      Int
+  take        Take   @relation(fields: [takeId], references: [id], onDelete: Cascade)
+  timeSeconds Float
+  kind        String
+  confidence  Float?
 }

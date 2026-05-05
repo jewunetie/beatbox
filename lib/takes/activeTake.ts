@@ -38,6 +38,19 @@ function makeId(): string {
   return Math.random().toString(36).slice(2);
 }
 
+type WireMarkerLike = {
+  id: number;
+  timeMs: number;
+  kind: MarkerKind;
+};
+
+type WireTakeLike = {
+  id: number;
+  trackId: string;
+  granularity: Granularity;
+  markers: WireMarkerLike[];
+};
+
 export type ActiveTakeApi = {
   take: ActiveTake;
   takeRef: React.RefObject<ActiveTake>;
@@ -50,6 +63,8 @@ export type ActiveTakeApi = {
   replaceMarkers: (markers: Marker[]) => void;
   clearMarkers: () => void;
   discardMarkersInEpoch: (epoch: number) => number;
+  loadServerTake: (take: WireTakeLike) => void;
+  markAllSaved: (take: WireTakeLike) => void;
 };
 
 export function useActiveTake(): ActiveTakeApi {
@@ -176,6 +191,65 @@ export function useActiveTake(): ActiveTakeApi {
     [scheduleFlush]
   );
 
+  const loadServerTake = useCallback(
+    (wire: WireTakeLike) => {
+      takeRef.current = {
+        trackId: wire.trackId,
+        granularity: wire.granularity,
+        calibrationOffsetMs: takeRef.current.calibrationOffsetMs,
+        serverTakeId: wire.id,
+        markers: wire.markers
+          .map((m) => ({
+            id: makeId(),
+            timeMs: m.timeMs,
+            epoch: -1,
+            kind: m.kind,
+            saved: true,
+            dirty: false,
+            serverId: m.id,
+          }))
+          .sort((a, b) => a.timeMs - b.timeMs),
+      };
+      scheduleFlush();
+    },
+    [scheduleFlush]
+  );
+
+  const markAllSaved = useCallback(
+    (wire: WireTakeLike) => {
+      const t = takeRef.current;
+      const byPosition = [...wire.markers].sort((a, b) => a.timeMs - b.timeMs);
+      const localSorted = [...t.markers].sort((a, b) => a.timeMs - b.timeMs);
+      const lookupServerId = new Map<string, number>();
+      const usedServer = new Set<number>();
+      // Pair locals to server markers by nearest time without reuse.
+      for (const local of localSorted) {
+        let best: { id: number; dist: number } | null = null;
+        for (const w of byPosition) {
+          if (usedServer.has(w.id)) continue;
+          const dist = Math.abs(w.timeMs - local.timeMs);
+          if (best == null || dist < best.dist) best = { id: w.id, dist };
+        }
+        if (best && best.dist <= 5) {
+          lookupServerId.set(local.id, best.id);
+          usedServer.add(best.id);
+        }
+      }
+      takeRef.current = {
+        ...t,
+        serverTakeId: wire.id,
+        markers: t.markers.map((m) => ({
+          ...m,
+          saved: true,
+          dirty: false,
+          serverId: lookupServerId.get(m.id) ?? m.serverId,
+        })),
+      };
+      scheduleFlush();
+    },
+    [scheduleFlush]
+  );
+
   return {
     take,
     takeRef,
@@ -188,5 +262,7 @@ export function useActiveTake(): ActiveTakeApi {
     replaceMarkers,
     clearMarkers,
     discardMarkersInEpoch,
+    loadServerTake,
+    markAllSaved,
   };
 }

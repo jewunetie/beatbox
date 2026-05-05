@@ -23,6 +23,7 @@ import { useSessionStorage } from "@/hooks/useSessionStorage";
 import type { SpotifyController } from "@/types/spotify-iframe-api";
 import type { NormalizedTrack } from "@/types/domain";
 import type { CalibrationResult } from "@/lib/audio/metronome";
+import type { WireTake } from "@/lib/takes/serialize";
 
 export function StudioShell() {
   const [query, setQuery] = useState("");
@@ -34,6 +35,7 @@ export function StudioShell() {
     null
   );
   const [calibrationDialogOpen, setCalibrationDialogOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const playback = useSpotifyPlayback(controller);
   const activeTake = useActiveTake();
 
@@ -53,11 +55,42 @@ export function StudioShell() {
     setSelectedMarkerId,
   });
 
-  // Reset markers + selection when the selected track changes.
+  // Reset markers + selection when the selected track changes, then load any
+  // existing labels for it from the server.
   useEffect(() => {
-    activeTake.setTrack(selectedTrack?.spotifyId ?? null);
+    const trackId = selectedTrack?.spotifyId ?? null;
+    activeTake.setTrack(trackId);
     setSelectedMarkerId(null);
-  }, [selectedTrack?.spotifyId, activeTake.setTrack]);
+    if (!trackId) return;
+    let cancelled = false;
+    fetch(`/api/labels/${trackId}`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return (await r.json()) as { takes: WireTake[] };
+      })
+      .then((data) => {
+        if (cancelled) return;
+        if (data.takes.length === 0) return;
+        const latest = data.takes[data.takes.length - 1];
+        activeTake.loadServerTake({
+          id: latest.id,
+          trackId: latest.trackId,
+          granularity: latest.granularity,
+          markers: latest.markers.map((m) => ({
+            id: m.id,
+            timeMs: m.timeMs,
+            kind: m.kind,
+          })),
+        });
+        toast.success(`Loaded ${latest.markers.length} markers from last take`);
+      })
+      .catch((err) => {
+        if (!cancelled) toast.error(`Load failed: ${err.message}`);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTrack?.spotifyId, activeTake.setTrack, activeTake.loadServerTake]);
 
   // Discard taps captured against the pre-seek epoch.
   useEffect(() => {
@@ -71,6 +104,59 @@ export function StudioShell() {
 
   const durationMs = playback.anchorRef.current.durationMs || selectedTrack?.durationMs || 0;
   const markerCount = activeTake.take.markers.length;
+  const dirtyCount = activeTake.take.markers.filter((m) => !m.saved || m.dirty).length;
+
+  const save = async () => {
+    if (!selectedTrack) return;
+    const take = activeTake.takeRef.current;
+    if (take.markers.length === 0) {
+      toast.warning("No markers to save");
+      return;
+    }
+    setSaving(true);
+    try {
+      const resp = await fetch(`/api/labels/${selectedTrack.spotifyId}/takes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          granularity: take.granularity,
+          source: "tap",
+          calibrationOffsetMs: calibration?.offsetMs ?? null,
+          markers: take.markers.map((m) => ({
+            timeMs: m.timeMs,
+            kind: m.kind === "manual_edit" ? "manual_edit" : m.kind,
+            confidence: null,
+          })),
+          track: {
+            name: selectedTrack.name,
+            artist: selectedTrack.artist,
+            album: selectedTrack.album,
+            durationMs: selectedTrack.durationMs,
+          },
+        }),
+      });
+      if (!resp.ok) {
+        const data = (await resp.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error ?? `HTTP ${resp.status}`);
+      }
+      const data = (await resp.json()) as { take: WireTake };
+      activeTake.markAllSaved({
+        id: data.take.id,
+        trackId: data.take.trackId,
+        granularity: data.take.granularity,
+        markers: data.take.markers.map((m) => ({
+          id: m.id,
+          timeMs: m.timeMs,
+          kind: m.kind,
+        })),
+      });
+      toast.success(`Saved ${take.markers.length} marker${take.markers.length === 1 ? "" : "s"}`);
+    } catch (err) {
+      toast.error(`Save failed: ${(err as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <main className="flex-1 mx-auto w-full max-w-5xl px-6 py-10 space-y-6">
@@ -157,6 +243,7 @@ export function StudioShell() {
             <div className="flex items-center gap-3">
               <span className="text-xs text-muted-foreground tabular-nums">
                 {markerCount} marker{markerCount === 1 ? "" : "s"}
+                {dirtyCount > 0 ? ` · ${dirtyCount} unsaved` : ""}
               </span>
               {markerCount > 0 ? (
                 <Button
@@ -170,6 +257,13 @@ export function StudioShell() {
                   Clear
                 </Button>
               ) : null}
+              <Button
+                size="sm"
+                disabled={saving || markerCount === 0 || !selectedTrack}
+                onClick={save}
+              >
+                {saving ? "Saving…" : "Save"}
+              </Button>
             </div>
           </div>
         </CardHeader>
