@@ -1,18 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 export function useSessionStorage<T>(
   key: string,
   initial: T | (() => T)
-): [T, (next: T | ((prev: T) => T)) => void, () => void] {
+): [T, (next: T | ((prev: T) => T)) => void, () => void, boolean] {
   const [value, setValue] = useState<T>(() =>
     typeof initial === "function" ? (initial as () => T)() : initial
   );
-  // Track whether the initial sessionStorage read has run so we can skip the
-  // first write-back that would otherwise overwrite stored data with the
-  // default before we've loaded it.
-  const hydratedRef = useRef(false);
+  // ready flips true after the first sessionStorage read so callers can skip
+  // any UI that would otherwise flash before stored values are restored.
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     try {
@@ -23,20 +22,19 @@ export function useSessionStorage<T>(
     } catch {
       /* ignore */
     } finally {
-      hydratedRef.current = true;
+      setReady(true);
     }
-    // Read once on mount per key.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
   useEffect(() => {
-    if (!hydratedRef.current) return;
+    if (!ready) return;
     try {
       window.sessionStorage.setItem(key, JSON.stringify(value));
     } catch {
       /* quota or disabled storage — ignore */
     }
-  }, [key, value]);
+  }, [key, value, ready]);
 
   const update = useCallback(
     (next: T | ((prev: T) => T)) => {
@@ -55,5 +53,5 @@ export function useSessionStorage<T>(
     }
   }, [key]);
 
-  return [value, update, remove];
+  return [value, update, remove, ready];
 }

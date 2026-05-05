@@ -34,7 +34,7 @@ export function StudioShell() {
   const [selectedTrack, setSelectedTrack] = useState<NormalizedTrack | null>(null);
   const [controller, setController] = useState<SpotifyController | null>(null);
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
-  const [calibration, setCalibration] = useSessionStorage<CalibrationResult | null>(
+  const [calibration, setCalibration, , calibrationReady] = useSessionStorage<CalibrationResult | null>(
     "beatbox.calibration",
     null
   );
@@ -52,7 +52,7 @@ export function StudioShell() {
   const selectedMarkerIdRef = useRef<string | null>(null);
   selectedMarkerIdRef.current = selectedMarkerId;
 
-  const needsCalibration = calibration == null;
+  const needsCalibration = calibrationReady && calibration == null;
   const calibrationOpen = needsCalibration || calibrationDialogOpen;
 
   useKeyboardShortcuts({
