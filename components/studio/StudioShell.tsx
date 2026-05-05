@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card";
 import { SearchBar } from "@/components/studio/SearchBar";
 import { SearchResults } from "@/components/studio/SearchResults";
+import { SpotifyPlayer } from "@/components/studio/SpotifyPlayer";
 import type { NormalizedTrack } from "@/types/domain";
 
 export function StudioShell() {
@@ -57,8 +58,14 @@ export function StudioShell() {
               : "Pick a track from the search results."}
           </CardDescription>
         </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          Iframe + playback hook lands here in steps 4–5.
+        <CardContent>
+          {selectedTrack ? (
+            <SpotifyPlayer trackId={selectedTrack.spotifyId} />
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Pick a track from the search results above.
+            </p>
+          )}
         </CardContent>
       </Card>
 
