@@ -310,7 +310,22 @@ export function StudioShell() {
                 trackId={selectedTrack.spotifyId}
                 onController={setController}
               />
-              <PlaybackCounter playback={playback} />
+              <div className="flex items-center justify-between gap-3">
+                <PlaybackCounter playback={playback} />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!controller}
+                  onClick={() => {
+                    if (!controller) return;
+                    playback.expectSeek();
+                    controller.seek(0);
+                  }}
+                  title="Seek the iframe back to 0:00; markers are kept"
+                >
+                  Restart
+                </Button>
+              </div>
             </>
           ) : (
             <p className="text-sm text-muted-foreground">

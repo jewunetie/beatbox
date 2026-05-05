@@ -19,6 +19,12 @@ export type Playback = {
   getCurrentMs: () => number;
   getEpoch: () => number;
   onSeek: (cb: SeekListener) => () => void;
+  /**
+   * Deliberate seek: skip the next playback_update's seek-detection so unsaved
+   * taps captured against the current epoch survive (e.g. the Restart button).
+   * Pair with controller.seek(positionMs).
+   */
+  expectSeek: () => void;
 };
 
 export function useSpotifyPlayback(
@@ -26,6 +32,7 @@ export function useSpotifyPlayback(
 ): Playback {
   const anchorRef = useRef<PlaybackAnchor>(makeInitialAnchor());
   const seekListenersRef = useRef<Set<SeekListener>>(new Set());
+  const expectedSeekRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (!controller) {
@@ -38,9 +45,14 @@ export function useSpotifyPlayback(
       const prev = anchorRef.current;
       const interpolated = interpolate(prev, wallClockMs);
       const drift = Math.abs(position - interpolated);
+      const expected = expectedSeekRef.current;
       const seekDetected =
-        prev.epoch > 0 && prev.isPlaying && drift > SEEK_DRIFT_THRESHOLD_MS;
-      const nextEpoch = seekDetected || prev.epoch === 0 ? prev.epoch + 1 : prev.epoch;
+        !expected &&
+        prev.epoch > 0 &&
+        prev.isPlaying &&
+        drift > SEEK_DRIFT_THRESHOLD_MS;
+      const epochBumps = seekDetected || prev.epoch === 0 || expected;
+      const nextEpoch = epochBumps ? prev.epoch + 1 : prev.epoch;
       anchorRef.current = {
         positionMs: position,
         wallClockMs,
@@ -48,6 +60,7 @@ export function useSpotifyPlayback(
         durationMs: duration,
         epoch: nextEpoch,
       };
+      expectedSeekRef.current = false;
       if (seekDetected) {
         const discardedEpoch = prev.epoch;
         for (const cb of seekListenersRef.current) cb(discardedEpoch);
@@ -66,8 +79,11 @@ export function useSpotifyPlayback(
     seekListenersRef.current.add(cb);
     return () => seekListenersRef.current.delete(cb);
   }, []);
+  const expectSeek = useCallback(() => {
+    expectedSeekRef.current = true;
+  }, []);
 
-  return { anchorRef, getCurrentMs, getEpoch, onSeek };
+  return { anchorRef, getCurrentMs, getEpoch, onSeek, expectSeek };
 }
 
 /**
