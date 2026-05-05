@@ -16,6 +16,7 @@ import { SpotifyPlayer } from "@/components/studio/SpotifyPlayer";
 import { PlaybackCounter } from "@/components/studio/PlaybackCounter";
 import { Timeline } from "@/components/studio/Timeline";
 import { CalibrationDialog } from "@/components/studio/CalibrationDialog";
+import { ClickTrackControls } from "@/components/studio/ClickTrackControls";
 import { useSpotifyPlayback } from "@/lib/playback/useSpotifyPlayback";
 import { useActiveTake } from "@/lib/takes/activeTake";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
@@ -267,15 +268,18 @@ export function StudioShell() {
             </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           {selectedTrack ? (
-            <Timeline
-              durationMs={durationMs}
-              takeRef={activeTake.takeRef}
-              playback={playback}
-              selectedMarkerId={selectedMarkerId}
-              onSelectMarker={setSelectedMarkerId}
-            />
+            <>
+              <Timeline
+                durationMs={durationMs}
+                takeRef={activeTake.takeRef}
+                playback={playback}
+                selectedMarkerId={selectedMarkerId}
+                onSelectMarker={setSelectedMarkerId}
+              />
+              <ClickTrackControls playback={playback} activeTake={activeTake} />
+            </>
           ) : (
             <p className="text-sm text-muted-foreground">
               Load a track to start labeling.
