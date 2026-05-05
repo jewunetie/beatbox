@@ -18,6 +18,7 @@ import { Timeline } from "@/components/studio/Timeline";
 import { CalibrationDialog } from "@/components/studio/CalibrationDialog";
 import { ClickTrackControls } from "@/components/studio/ClickTrackControls";
 import { SnapToGridDialog } from "@/components/studio/SnapToGridDialog";
+import { TakeTabs } from "@/components/studio/TakeTabs";
 import { estimateTempo } from "@/lib/tempo/estimate";
 import { useSpotifyPlayback } from "@/lib/playback/useSpotifyPlayback";
 import { useActiveTake } from "@/lib/takes/activeTake";
@@ -40,6 +41,9 @@ export function StudioShell() {
   const [calibrationDialogOpen, setCalibrationDialogOpen] = useState(false);
   const [snapDialogOpen, setSnapDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [merging, setMerging] = useState(false);
+  const [loadedTakes, setLoadedTakes] = useState<WireTake[]>([]);
+  const [activeTakeServerId, setActiveTakeServerId] = useState<number | null>(null);
   const playback = useSpotifyPlayback(controller);
   const activeTake = useActiveTake();
 
@@ -65,6 +69,8 @@ export function StudioShell() {
     const trackId = selectedTrack?.spotifyId ?? null;
     activeTake.setTrack(trackId);
     setSelectedMarkerId(null);
+    setLoadedTakes([]);
+    setActiveTakeServerId(null);
     if (!trackId) return;
     let cancelled = false;
     fetch(`/api/labels/${trackId}`)
@@ -74,6 +80,7 @@ export function StudioShell() {
       })
       .then((data) => {
         if (cancelled) return;
+        setLoadedTakes(data.takes);
         if (data.takes.length === 0) return;
         const latest = data.takes[data.takes.length - 1];
         activeTake.loadServerTake({
@@ -86,7 +93,8 @@ export function StudioShell() {
             kind: m.kind,
           })),
         });
-        toast.success(`Loaded ${latest.markers.length} markers from last take`);
+        setActiveTakeServerId(latest.id);
+        toast.success(`Loaded ${latest.markers.length} markers from take #${latest.id}`);
       })
       .catch((err) => {
         if (!cancelled) toast.error(`Load failed: ${err.message}`);
@@ -110,6 +118,14 @@ export function StudioShell() {
   const markerCount = activeTake.take.markers.length;
   const dirtyCount = activeTake.take.markers.filter((m) => !m.saved || m.dirty).length;
   const tempo = estimateTempo(activeTake.take.markers.map((m) => m.timeMs));
+
+  const refreshTakes = async (trackId: string): Promise<WireTake[]> => {
+    const r = await fetch(`/api/labels/${trackId}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = (await r.json()) as { takes: WireTake[] };
+    setLoadedTakes(data.takes);
+    return data.takes;
+  };
 
   const save = async () => {
     if (!selectedTrack) return;
@@ -155,11 +171,83 @@ export function StudioShell() {
           kind: m.kind,
         })),
       });
-      toast.success(`Saved ${take.markers.length} marker${take.markers.length === 1 ? "" : "s"}`);
+      setActiveTakeServerId(data.take.id);
+      await refreshTakes(selectedTrack.spotifyId);
+      toast.success(`Saved take #${data.take.id} (${take.markers.length} marker${take.markers.length === 1 ? "" : "s"})`);
     } catch (err) {
       toast.error(`Save failed: ${(err as Error).message}`);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const switchTake = (takeId: number | null) => {
+    setSelectedMarkerId(null);
+    if (takeId == null) {
+      activeTake.clearMarkers();
+      setActiveTakeServerId(null);
+      return;
+    }
+    const target = loadedTakes.find((t) => t.id === takeId);
+    if (!target) return;
+    activeTake.loadServerTake({
+      id: target.id,
+      trackId: target.trackId,
+      granularity: target.granularity,
+      markers: target.markers.map((m) => ({
+        id: m.id,
+        timeMs: m.timeMs,
+        kind: m.kind,
+      })),
+    });
+    setActiveTakeServerId(target.id);
+  };
+
+  const deleteTake = async (takeId: number) => {
+    if (!selectedTrack) return;
+    try {
+      const r = await fetch(`/api/labels/takes/${takeId}`, { method: "DELETE" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const remaining = await refreshTakes(selectedTrack.spotifyId);
+      if (activeTakeServerId === takeId) {
+        const fallback = remaining[remaining.length - 1];
+        if (fallback) {
+          switchTake(fallback.id);
+        } else {
+          switchTake(null);
+        }
+      }
+      toast.success(`Deleted take #${takeId}`);
+    } catch (err) {
+      toast.error(`Delete failed: ${(err as Error).message}`);
+    }
+  };
+
+  const mergeTakes = async () => {
+    if (!selectedTrack || loadedTakes.length < 2) return;
+    setMerging(true);
+    try {
+      const r = await fetch(`/api/labels/${selectedTrack.spotifyId}/merge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          takeIds: loadedTakes.map((t) => t.id),
+          granularity: "all_beats",
+        }),
+      });
+      if (!r.ok) {
+        const data = (await r.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error ?? `HTTP ${r.status}`);
+      }
+      const data = (await r.json()) as { take: WireTake; bpm: number };
+      const refreshed = await refreshTakes(selectedTrack.spotifyId);
+      const created = refreshed.find((t) => t.id === data.take.id) ?? data.take;
+      switchTake(created.id);
+      toast.success(`Merged into take #${created.id} @ ${data.bpm.toFixed(1)} BPM`);
+    } catch (err) {
+      toast.error(`Merge failed: ${(err as Error).message}`);
+    } finally {
+      setMerging(false);
     }
   };
 
@@ -309,10 +397,33 @@ export function StudioShell() {
       <Card>
         <CardHeader>
           <CardTitle>Takes</CardTitle>
-          <CardDescription>One tab per labeling pass.</CardDescription>
+          <CardDescription>
+            One row per labeling pass. Switching loads a take's markers into
+            the editor; saving always creates a new take.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          Multi-take support lands here in step 12.
+        <CardContent>
+          {selectedTrack ? (
+            loadedTakes.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No saved takes yet — tap some beats and Save.
+                {merging ? " Merging…" : ""}
+              </p>
+            ) : (
+              <TakeTabs
+                takes={loadedTakes}
+                activeServerId={activeTakeServerId}
+                isNew={activeTakeServerId == null}
+                onSelect={switchTake}
+                onDelete={deleteTake}
+                onMerge={mergeTakes}
+              />
+            )
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Pick a track to see its takes.
+            </p>
+          )}
         </CardContent>
       </Card>
 

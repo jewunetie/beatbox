@@ -1,5 +1,3 @@
-import { estimateTempo } from "./estimate";
-
 export type GridFit = {
   bpm: number;
   phaseMs: number;
@@ -18,14 +16,19 @@ export type GridFit = {
  */
 export function fitGrid(markerTimesMs: readonly number[]): GridFit | null {
   if (markerTimesMs.length < 4) return null;
-  const seed = estimateTempo(markerTimesMs);
-  if (!seed) return null;
   const sorted = [...markerTimesMs].sort((a, b) => a - b);
-
-  // Assign integer beat indices using the seed period and the first marker as
-  // a phase anchor. If two markers map to the same index the fit will simply
-  // be poor — the user previews residuals before committing.
-  const periodSeed = seed.ioiMedianMs;
+  const iois: number[] = [];
+  for (let i = 1; i < sorted.length; i++) {
+    const d = sorted[i] - sorted[i - 1];
+    if (d > 0) iois.push(d);
+  }
+  if (iois.length === 0) return null;
+  const ioiSorted = [...iois].sort((a, b) => a - b);
+  const mid = Math.floor(ioiSorted.length / 2);
+  const periodSeed =
+    ioiSorted.length % 2 === 0
+      ? (ioiSorted[mid - 1] + ioiSorted[mid]) / 2
+      : ioiSorted[mid];
   const phaseSeed = sorted[0];
   const indices = sorted.map((t) => Math.round((t - phaseSeed) / periodSeed));
 
