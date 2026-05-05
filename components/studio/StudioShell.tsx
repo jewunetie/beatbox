@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -9,11 +9,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { toast } from "sonner";
 import { SearchBar } from "@/components/studio/SearchBar";
 import { SearchResults } from "@/components/studio/SearchResults";
 import { SpotifyPlayer } from "@/components/studio/SpotifyPlayer";
 import { PlaybackCounter } from "@/components/studio/PlaybackCounter";
+import { Timeline } from "@/components/studio/Timeline";
 import { useSpotifyPlayback } from "@/lib/playback/useSpotifyPlayback";
+import { useActiveTake } from "@/lib/takes/activeTake";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import type { SpotifyController } from "@/types/spotify-iframe-api";
 import type { NormalizedTrack } from "@/types/domain";
 
@@ -21,7 +25,40 @@ export function StudioShell() {
   const [query, setQuery] = useState("");
   const [selectedTrack, setSelectedTrack] = useState<NormalizedTrack | null>(null);
   const [controller, setController] = useState<SpotifyController | null>(null);
+  const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
   const playback = useSpotifyPlayback(controller);
+  const activeTake = useActiveTake();
+
+  const calibrationOffsetMsRef = useRef<number>(0);
+  const selectedMarkerIdRef = useRef<string | null>(null);
+  selectedMarkerIdRef.current = selectedMarkerId;
+
+  useKeyboardShortcuts({
+    playback,
+    activeTake,
+    calibrationOffsetMsRef,
+    selectedMarkerIdRef,
+    setSelectedMarkerId,
+  });
+
+  // Reset markers + selection when the selected track changes.
+  useEffect(() => {
+    activeTake.setTrack(selectedTrack?.spotifyId ?? null);
+    setSelectedMarkerId(null);
+  }, [selectedTrack?.spotifyId, activeTake.setTrack]);
+
+  // Discard taps captured against the pre-seek epoch.
+  useEffect(() => {
+    return playback.onSeek((discardedEpoch) => {
+      const dropped = activeTake.discardMarkersInEpoch(discardedEpoch);
+      if (dropped > 0) {
+        toast.warning(`Discarded ${dropped} tap${dropped === 1 ? "" : "s"} near seek`);
+      }
+    });
+  }, [playback, activeTake.discardMarkersInEpoch]);
+
+  const durationMs = playback.anchorRef.current.durationMs || selectedTrack?.durationMs || 0;
+  const markerCount = activeTake.take.markers.length;
 
   return (
     <main className="flex-1 mx-auto w-full max-w-5xl px-6 py-10 space-y-6">
@@ -82,13 +119,50 @@ export function StudioShell() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Timeline</CardTitle>
-          <CardDescription>
-            Tap markers and the moving playhead.
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Timeline</CardTitle>
+              <CardDescription>
+                Press{" "}
+                <kbd className="rounded border bg-muted px-1.5 py-0.5 text-xs font-mono">
+                  Space
+                </kbd>{" "}
+                to record a beat. Click a marker to select; arrows nudge ±10 ms (±1 ms with shift); delete removes.
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {markerCount} marker{markerCount === 1 ? "" : "s"}
+              </span>
+              {markerCount > 0 ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    activeTake.clearMarkers();
+                    setSelectedMarkerId(null);
+                  }}
+                >
+                  Clear
+                </Button>
+              ) : null}
+            </div>
+          </div>
         </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          Canvas timeline + tap recording lands here in step 6.
+        <CardContent>
+          {selectedTrack ? (
+            <Timeline
+              durationMs={durationMs}
+              takeRef={activeTake.takeRef}
+              playback={playback}
+              selectedMarkerId={selectedMarkerId}
+              onSelectMarker={setSelectedMarkerId}
+            />
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Load a track to start labeling.
+            </p>
+          )}
         </CardContent>
       </Card>
 
