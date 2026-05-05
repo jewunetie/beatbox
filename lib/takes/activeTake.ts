@@ -65,6 +65,7 @@ export type ActiveTakeApi = {
   discardMarkersInEpoch: (epoch: number) => number;
   loadServerTake: (take: WireTakeLike) => void;
   markAllSaved: (take: WireTakeLike) => void;
+  snapMarkers: (snapped: { id: string; timeMs: number }[]) => void;
 };
 
 export function useActiveTake(): ActiveTakeApi {
@@ -250,6 +251,30 @@ export function useActiveTake(): ActiveTakeApi {
     [scheduleFlush]
   );
 
+  const snapMarkers = useCallback(
+    (snapped: { id: string; timeMs: number }[]) => {
+      const map = new Map(snapped.map((s) => [s.id, s.timeMs]));
+      const t = takeRef.current;
+      takeRef.current = {
+        ...t,
+        markers: t.markers
+          .map((m) => {
+            const next = map.get(m.id);
+            if (next == null) return m;
+            return {
+              ...m,
+              timeMs: next,
+              kind: "snapped" as MarkerKind,
+              dirty: true,
+            };
+          })
+          .sort((a, b) => a.timeMs - b.timeMs),
+      };
+      scheduleFlush();
+    },
+    [scheduleFlush]
+  );
+
   return {
     take,
     takeRef,
@@ -264,5 +289,6 @@ export function useActiveTake(): ActiveTakeApi {
     discardMarkersInEpoch,
     loadServerTake,
     markAllSaved,
+    snapMarkers,
   };
 }

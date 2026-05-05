@@ -17,6 +17,8 @@ import { PlaybackCounter } from "@/components/studio/PlaybackCounter";
 import { Timeline } from "@/components/studio/Timeline";
 import { CalibrationDialog } from "@/components/studio/CalibrationDialog";
 import { ClickTrackControls } from "@/components/studio/ClickTrackControls";
+import { SnapToGridDialog } from "@/components/studio/SnapToGridDialog";
+import { estimateTempo } from "@/lib/tempo/estimate";
 import { useSpotifyPlayback } from "@/lib/playback/useSpotifyPlayback";
 import { useActiveTake } from "@/lib/takes/activeTake";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
@@ -36,6 +38,7 @@ export function StudioShell() {
     null
   );
   const [calibrationDialogOpen, setCalibrationDialogOpen] = useState(false);
+  const [snapDialogOpen, setSnapDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const playback = useSpotifyPlayback(controller);
   const activeTake = useActiveTake();
@@ -106,6 +109,7 @@ export function StudioShell() {
   const durationMs = playback.anchorRef.current.durationMs || selectedTrack?.durationMs || 0;
   const markerCount = activeTake.take.markers.length;
   const dirtyCount = activeTake.take.markers.filter((m) => !m.saved || m.dirty).length;
+  const tempo = estimateTempo(activeTake.take.markers.map((m) => m.timeMs));
 
   const save = async () => {
     if (!selectedTrack) return;
@@ -245,7 +249,21 @@ export function StudioShell() {
               <span className="text-xs text-muted-foreground tabular-nums">
                 {markerCount} marker{markerCount === 1 ? "" : "s"}
                 {dirtyCount > 0 ? ` · ${dirtyCount} unsaved` : ""}
+                {tempo
+                  ? ` · ${tempo.bpm.toFixed(1)} BPM${
+                      tempo.bpmSd != null ? ` ±${tempo.bpmSd.toFixed(1)}` : ""
+                    }`
+                  : ""}
               </span>
+              {markerCount >= 4 ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSnapDialogOpen(true)}
+                >
+                  Snap to grid
+                </Button>
+              ) : null}
               {markerCount > 0 ? (
                 <Button
                   variant="ghost"
@@ -309,6 +327,16 @@ export function StudioShell() {
             ? () => setCalibrationDialogOpen(false)
             : undefined
         }
+      />
+
+      <SnapToGridDialog
+        open={snapDialogOpen}
+        markers={activeTake.take.markers.map((m) => ({ id: m.id, timeMs: m.timeMs }))}
+        onCancel={() => setSnapDialogOpen(false)}
+        onApply={(snapped) => {
+          activeTake.snapMarkers(snapped);
+          setSnapDialogOpen(false);
+        }}
       />
     </main>
   );
