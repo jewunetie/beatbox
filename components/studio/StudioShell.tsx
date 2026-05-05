@@ -12,11 +12,16 @@ import {
 import { SearchBar } from "@/components/studio/SearchBar";
 import { SearchResults } from "@/components/studio/SearchResults";
 import { SpotifyPlayer } from "@/components/studio/SpotifyPlayer";
+import { PlaybackCounter } from "@/components/studio/PlaybackCounter";
+import { useSpotifyPlayback } from "@/lib/playback/useSpotifyPlayback";
+import type { SpotifyController } from "@/types/spotify-iframe-api";
 import type { NormalizedTrack } from "@/types/domain";
 
 export function StudioShell() {
   const [query, setQuery] = useState("");
   const [selectedTrack, setSelectedTrack] = useState<NormalizedTrack | null>(null);
+  const [controller, setController] = useState<SpotifyController | null>(null);
+  const playback = useSpotifyPlayback(controller);
 
   return (
     <main className="flex-1 mx-auto w-full max-w-5xl px-6 py-10 space-y-6">
@@ -58,9 +63,15 @@ export function StudioShell() {
               : "Pick a track from the search results."}
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
           {selectedTrack ? (
-            <SpotifyPlayer trackId={selectedTrack.spotifyId} />
+            <>
+              <SpotifyPlayer
+                trackId={selectedTrack.spotifyId}
+                onController={setController}
+              />
+              <PlaybackCounter playback={playback} />
+            </>
           ) : (
             <p className="text-sm text-muted-foreground">
               Pick a track from the search results above.
