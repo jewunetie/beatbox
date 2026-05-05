@@ -1,16 +1,16 @@
 "use client";
 
 import { formatMs } from "@/lib/utils/formatTime";
-import { useFrameValue, type Playback } from "@/lib/playback/useSpotifyPlayback";
+import { useFrameTicks, type Playback } from "@/lib/playback/useSpotifyPlayback";
 
 type Props = {
   playback: Playback;
 };
 
 export function PlaybackCounter({ playback }: Props) {
-  const ms = useFrameValue(playback.getCurrentMs, 30);
-  const epoch = useFrameValue(playback.getEpoch, 30);
-  const { isPlaying, durationMs } = playback.anchorRef.current;
+  useFrameTicks(30);
+  const ms = playback.getCurrentMs();
+  const { isPlaying, durationMs, epoch } = playback.anchorRef.current;
   return (
     <div className="flex items-center gap-3 font-mono text-sm">
       <span className="tabular-nums">

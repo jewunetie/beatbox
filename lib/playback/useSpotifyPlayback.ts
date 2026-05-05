@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useReducer, useRef } from "react";
 import type {
   SpotifyController,
   SpotifyPlaybackUpdate,
@@ -70,23 +70,31 @@ export function useSpotifyPlayback(
   return { anchorRef, getCurrentMs, getEpoch, onSeek };
 }
 
-export function useFrameValue<T>(read: () => T, fps = 60): T {
-  const subscribe = useCallback(
-    (cb: () => void) => {
-      let raf = 0;
-      const interval = 1000 / fps;
-      let last = 0;
-      const tick = (t: number) => {
-        if (t - last >= interval) {
-          last = t;
-          cb();
-        }
-        raf = requestAnimationFrame(tick);
-      };
-      raf = requestAnimationFrame(tick);
-      return () => cancelAnimationFrame(raf);
-    },
-    [fps]
-  );
-  return useSyncExternalStore(subscribe, read, read);
+/**
+ * Forces a re-render on every animation frame (or fps-throttled).
+ * Use when you want a component to read time-varying ref values fresh on each
+ * frame without writing them through React state. The return value (a frame
+ * counter) is intentionally unused — call playback.getCurrentMs() etc.
+ * directly inside the render to get the freshest value.
+ *
+ * Note: do NOT use useSyncExternalStore for this — its snapshot must be stable
+ * between subscribe events, and `() => performance.now()`-style reads aren't.
+ */
+export function useFrameTicks(fps = 30): number {
+  const [tick, bump] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => {
+    let raf = 0;
+    const interval = 1000 / fps;
+    let last = 0;
+    const loop = (t: number) => {
+      if (t - last >= interval) {
+        last = t;
+        bump();
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [fps]);
+  return tick;
 }
