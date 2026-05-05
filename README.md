@@ -7,7 +7,7 @@ This is a single-user tool intended to run on `localhost:3000`. There is no host
 ## Setup
 
 1. Create a Spotify Developer app at <https://developer.spotify.com/dashboard>. The app owner needs Spotify Premium.
-2. Copy `.env.example` to `.env`, and `.env.local.example` to `.env.local`. Fill in the Spotify Client ID and Secret in `.env.local`. `DATABASE_URL` in `.env` is correct as written for local dev.
+2. Copy `.env.example` to `.env` and fill in `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET`. The `DATABASE_URL` line in the template is correct as written for local dev.
 3. Install dependencies: `npm install`.
 4. Initialize the SQLite database: `npx prisma migrate deploy` (or `npx prisma migrate dev` if you also want to apply pending dev migrations).
 5. Start the dev server: `npm run dev`.

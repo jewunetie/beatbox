@@ -34,7 +34,7 @@ async function fetchToken(): Promise<string> {
   const secret = process.env.SPOTIFY_CLIENT_SECRET;
   if (!id || !secret) {
     throw new SpotifyAuthError(
-      "SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET must be set in .env.local"
+      "SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET must be set in .env"
     );
   }
 
