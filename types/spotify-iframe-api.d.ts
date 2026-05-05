@@ -29,7 +29,9 @@ export interface SpotifyController {
   addListener(name: "playback_update", cb: SpotifyEventListener<SpotifyPlaybackUpdate>): void;
   addListener(name: "ready", cb: SpotifyEventListener): void;
   addListener(name: "error", cb: SpotifyEventListener): void;
-  removeListener(name: SpotifyEventName, cb: SpotifyEventListener): void;
+  removeListener(name: "playback_update", cb: SpotifyEventListener<SpotifyPlaybackUpdate>): void;
+  removeListener(name: "ready", cb: SpotifyEventListener): void;
+  removeListener(name: "error", cb: SpotifyEventListener): void;
 }
 
 export interface SpotifyIFrameAPI {
