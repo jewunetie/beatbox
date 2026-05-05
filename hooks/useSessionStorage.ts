@@ -1,27 +1,36 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export function useSessionStorage<T>(
   key: string,
   initial: T | (() => T)
 ): [T, (next: T | ((prev: T) => T)) => void, () => void] {
-  const [value, setValue] = useState<T>(() => {
-    if (typeof window === "undefined") {
-      return typeof initial === "function" ? (initial as () => T)() : initial;
-    }
-    try {
-      const raw = window.sessionStorage.getItem(key);
-      if (raw == null) {
-        return typeof initial === "function" ? (initial as () => T)() : initial;
-      }
-      return JSON.parse(raw) as T;
-    } catch {
-      return typeof initial === "function" ? (initial as () => T)() : initial;
-    }
-  });
+  const [value, setValue] = useState<T>(() =>
+    typeof initial === "function" ? (initial as () => T)() : initial
+  );
+  // Track whether the initial sessionStorage read has run so we can skip the
+  // first write-back that would otherwise overwrite stored data with the
+  // default before we've loaded it.
+  const hydratedRef = useRef(false);
 
   useEffect(() => {
+    try {
+      const raw = window.sessionStorage.getItem(key);
+      if (raw != null) {
+        setValue(JSON.parse(raw) as T);
+      }
+    } catch {
+      /* ignore */
+    } finally {
+      hydratedRef.current = true;
+    }
+    // Read once on mount per key.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  useEffect(() => {
+    if (!hydratedRef.current) return;
     try {
       window.sessionStorage.setItem(key, JSON.stringify(value));
     } catch {

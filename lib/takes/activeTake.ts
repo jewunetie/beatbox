@@ -70,8 +70,10 @@ export type ActiveTakeApi = {
 
 export function useActiveTake(): ActiveTakeApi {
   const [take, setTake] = useState<ActiveTake>(initialTake);
-  const takeRef = useRef<ActiveTake>(take);
-  takeRef.current = take;
+  // takeRef is the imperative source of truth for hot-path writes (keydown,
+  // loadServerTake, etc.). It must NEVER be reassigned during render — that
+  // would clobber writes between scheduleFlush and the next render.
+  const takeRef = useRef<ActiveTake>(initialTake);
   const rafRef = useRef<number | null>(null);
 
   const scheduleFlush = useCallback(() => {
