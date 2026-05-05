@@ -15,23 +15,35 @@ import { SearchResults } from "@/components/studio/SearchResults";
 import { SpotifyPlayer } from "@/components/studio/SpotifyPlayer";
 import { PlaybackCounter } from "@/components/studio/PlaybackCounter";
 import { Timeline } from "@/components/studio/Timeline";
+import { CalibrationDialog } from "@/components/studio/CalibrationDialog";
 import { useSpotifyPlayback } from "@/lib/playback/useSpotifyPlayback";
 import { useActiveTake } from "@/lib/takes/activeTake";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+import { useSessionStorage } from "@/hooks/useSessionStorage";
 import type { SpotifyController } from "@/types/spotify-iframe-api";
 import type { NormalizedTrack } from "@/types/domain";
+import type { CalibrationResult } from "@/lib/audio/metronome";
 
 export function StudioShell() {
   const [query, setQuery] = useState("");
   const [selectedTrack, setSelectedTrack] = useState<NormalizedTrack | null>(null);
   const [controller, setController] = useState<SpotifyController | null>(null);
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
+  const [calibration, setCalibration] = useSessionStorage<CalibrationResult | null>(
+    "beatbox.calibration",
+    null
+  );
+  const [calibrationDialogOpen, setCalibrationDialogOpen] = useState(false);
   const playback = useSpotifyPlayback(controller);
   const activeTake = useActiveTake();
 
-  const calibrationOffsetMsRef = useRef<number>(0);
+  const calibrationOffsetMsRef = useRef<number>(calibration?.offsetMs ?? 0);
+  calibrationOffsetMsRef.current = calibration?.offsetMs ?? 0;
   const selectedMarkerIdRef = useRef<string | null>(null);
   selectedMarkerIdRef.current = selectedMarkerId;
+
+  const needsCalibration = calibration == null;
+  const calibrationOpen = needsCalibration || calibrationDialogOpen;
 
   useKeyboardShortcuts({
     playback,
@@ -71,9 +83,21 @@ export function StudioShell() {
             Tap along to a Spotify track and save the beat positions.
           </p>
         </div>
-        <Button variant="outline" size="sm">
-          Calibrate
-        </Button>
+        <div className="flex flex-col items-end gap-1">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCalibrationDialogOpen(true)}
+          >
+            Calibrate
+          </Button>
+          {calibration && (
+            <span className="text-xs text-muted-foreground tabular-nums">
+              offset {calibration.offsetMs.toFixed(1)} ms · sd{" "}
+              {calibration.sd.toFixed(1)} ms
+            </span>
+          )}
+        </div>
       </header>
 
       <Card>
@@ -175,6 +199,19 @@ export function StudioShell() {
           Multi-take support lands here in step 12.
         </CardContent>
       </Card>
+
+      <CalibrationDialog
+        open={calibrationOpen}
+        onSave={(result) => {
+          setCalibration(result);
+          setCalibrationDialogOpen(false);
+        }}
+        onCancel={
+          calibration
+            ? () => setCalibrationDialogOpen(false)
+            : undefined
+        }
+      />
     </main>
   );
 }
