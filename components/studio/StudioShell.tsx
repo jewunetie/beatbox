@@ -9,7 +9,6 @@ import { SpotifyPlayer } from "@/components/studio/SpotifyPlayer";
 import { PlaybackCounter } from "@/components/studio/PlaybackCounter";
 import { Timeline } from "@/components/studio/Timeline";
 import { CalibrationDialog } from "@/components/studio/CalibrationDialog";
-import { ClickTrackControls } from "@/components/studio/ClickTrackControls";
 import { SnapToGridDialog } from "@/components/studio/SnapToGridDialog";
 import { ControlsBar } from "@/components/studio/ControlsBar";
 import { LibraryPanel } from "@/components/studio/LibraryPanel";

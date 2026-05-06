@@ -143,6 +143,9 @@ function LibraryCard({
           style={{ color: "var(--studio-muted-text)" }}
         >
           {entry.artist}
+          {entry.album ? (
+            <span style={{ color: "var(--studio-dim-text)" }}> — {entry.album}</span>
+          ) : null}
         </div>
         <div className="flex items-center gap-2 mt-1">
           {entry.estimatedBpm !== null && (
