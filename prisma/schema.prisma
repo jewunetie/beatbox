@@ -16,6 +16,7 @@ model Track {
   artist      String
   album       String?
   durationMs  Int
+  coverUrl    String?
   firstSeenAt DateTime @default(now())
   takes       Take[]
 }

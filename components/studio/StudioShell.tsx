@@ -1,24 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { toast } from "sonner";
-import { SearchBar } from "@/components/studio/SearchBar";
-import { SearchResults } from "@/components/studio/SearchResults";
+import { Settings } from "lucide-react";
+import { SearchPanel } from "@/components/studio/SearchPanel";
+import { TrackHero } from "@/components/studio/TrackHero";
 import { SpotifyPlayer } from "@/components/studio/SpotifyPlayer";
 import { PlaybackCounter } from "@/components/studio/PlaybackCounter";
 import { Timeline } from "@/components/studio/Timeline";
 import { CalibrationDialog } from "@/components/studio/CalibrationDialog";
 import { ClickTrackControls } from "@/components/studio/ClickTrackControls";
 import { SnapToGridDialog } from "@/components/studio/SnapToGridDialog";
-import { TakeTabs } from "@/components/studio/TakeTabs";
+import { ControlsBar } from "@/components/studio/ControlsBar";
+import { LibraryPanel } from "@/components/studio/LibraryPanel";
 import { estimateTempo } from "@/lib/tempo/estimate";
 import { useSpotifyPlayback } from "@/lib/playback/useSpotifyPlayback";
 import { useActiveTake } from "@/lib/takes/activeTake";
@@ -28,6 +22,7 @@ import type { SpotifyController } from "@/types/spotify-iframe-api";
 import type { NormalizedTrack } from "@/types/domain";
 import type { CalibrationResult } from "@/lib/audio/metronome";
 import type { WireTake } from "@/lib/takes/serialize";
+import type { LibraryEntry } from "@/app/api/library/route";
 
 export function StudioShell() {
   const [query, setQuery] = useState("");
@@ -41,9 +36,8 @@ export function StudioShell() {
   const [calibrationDialogOpen, setCalibrationDialogOpen] = useState(false);
   const [snapDialogOpen, setSnapDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [merging, setMerging] = useState(false);
-  const [loadedTakes, setLoadedTakes] = useState<WireTake[]>([]);
-  const [activeTakeServerId, setActiveTakeServerId] = useState<number | null>(null);
+  const [libraryRefreshKey, setLibraryRefreshKey] = useState(0);
+
   const playback = useSpotifyPlayback(controller);
   const activeTake = useActiveTake();
 
@@ -63,14 +57,11 @@ export function StudioShell() {
     setSelectedMarkerId,
   });
 
-  // Reset markers + selection when the selected track changes, then load any
-  // existing labels for it from the server.
+  // Reset markers + selection when track changes, load latest saved take.
   useEffect(() => {
     const trackId = selectedTrack?.spotifyId ?? null;
     activeTake.setTrack(trackId);
     setSelectedMarkerId(null);
-    setLoadedTakes([]);
-    setActiveTakeServerId(null);
     if (!trackId) return;
     let cancelled = false;
     fetch(`/api/labels/${trackId}`)
@@ -80,7 +71,6 @@ export function StudioShell() {
       })
       .then((data) => {
         if (cancelled) return;
-        setLoadedTakes(data.takes);
         if (data.takes.length === 0) return;
         const latest = data.takes[data.takes.length - 1];
         activeTake.loadServerTake({
@@ -93,18 +83,15 @@ export function StudioShell() {
             kind: m.kind,
           })),
         });
-        setActiveTakeServerId(latest.id);
-        toast.success(`Loaded ${latest.markers.length} markers from take #${latest.id}`);
+        toast.success(`Loaded ${latest.markers.length} markers`);
       })
       .catch((err) => {
         if (!cancelled) toast.error(`Load failed: ${err.message}`);
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [selectedTrack?.spotifyId, activeTake.setTrack, activeTake.loadServerTake]);
 
-  // Discard taps captured against the pre-seek epoch.
+  // Discard taps captured against pre-seek epoch.
   useEffect(() => {
     return playback.onSeek((discardedEpoch) => {
       const dropped = activeTake.discardMarkersInEpoch(discardedEpoch);
@@ -118,14 +105,6 @@ export function StudioShell() {
   const markerCount = activeTake.take.markers.length;
   const dirtyCount = activeTake.take.markers.filter((m) => !m.saved || m.dirty).length;
   const tempo = estimateTempo(activeTake.take.markers.map((m) => m.timeMs));
-
-  const refreshTakes = async (trackId: string): Promise<WireTake[]> => {
-    const r = await fetch(`/api/labels/${trackId}`);
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const data = (await r.json()) as { takes: WireTake[] };
-    setLoadedTakes(data.takes);
-    return data.takes;
-  };
 
   const save = async () => {
     if (!selectedTrack) return;
@@ -153,6 +132,7 @@ export function StudioShell() {
             artist: selectedTrack.artist,
             album: selectedTrack.album,
             durationMs: selectedTrack.durationMs,
+            coverUrl: selectedTrack.coverUrl,
           },
         }),
       });
@@ -171,9 +151,8 @@ export function StudioShell() {
           kind: m.kind,
         })),
       });
-      setActiveTakeServerId(data.take.id);
-      await refreshTakes(selectedTrack.spotifyId);
-      toast.success(`Saved take #${data.take.id} (${take.markers.length} marker${take.markers.length === 1 ? "" : "s"})`);
+      setLibraryRefreshKey((k) => k + 1);
+      toast.success(`Saved ${take.markers.length} marker${take.markers.length === 1 ? "" : "s"}`);
     } catch (err) {
       toast.error(`Save failed: ${(err as Error).message}`);
     } finally {
@@ -181,217 +160,148 @@ export function StudioShell() {
     }
   };
 
-  const switchTake = (takeId: number | null) => {
-    setSelectedMarkerId(null);
-    if (takeId == null) {
-      activeTake.clearMarkers();
-      setActiveTakeServerId(null);
-      return;
-    }
-    const target = loadedTakes.find((t) => t.id === takeId);
-    if (!target) return;
-    activeTake.loadServerTake({
-      id: target.id,
-      trackId: target.trackId,
-      granularity: target.granularity,
-      markers: target.markers.map((m) => ({
-        id: m.id,
-        timeMs: m.timeMs,
-        kind: m.kind,
-      })),
+  const handleLoadLibraryTrack = (entry: LibraryEntry) => {
+    setSelectedTrack({
+      spotifyId: entry.spotifyId,
+      name: entry.name,
+      artist: entry.artist,
+      album: entry.album ?? "",
+      durationMs: entry.durationMs,
+      coverUrl: entry.coverUrl,
     });
-    setActiveTakeServerId(target.id);
   };
 
-  const deleteTake = async (takeId: number) => {
-    if (!selectedTrack) return;
+  const handleDeleteLibraryTrack = async (trackId: string) => {
     try {
-      const r = await fetch(`/api/labels/takes/${takeId}`, { method: "DELETE" });
+      const r = await fetch(`/api/library/${trackId}`, { method: "DELETE" });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const remaining = await refreshTakes(selectedTrack.spotifyId);
-      if (activeTakeServerId === takeId) {
-        const fallback = remaining[remaining.length - 1];
-        if (fallback) {
-          switchTake(fallback.id);
-        } else {
-          switchTake(null);
-        }
-      }
-      toast.success(`Deleted take #${takeId}`);
+      if (selectedTrack?.spotifyId === trackId) setSelectedTrack(null);
+      setLibraryRefreshKey((k) => k + 1);
+      toast.success("Removed from collection");
     } catch (err) {
       toast.error(`Delete failed: ${(err as Error).message}`);
     }
   };
 
-  const mergeTakes = async () => {
-    if (!selectedTrack || loadedTakes.length < 2) return;
-    setMerging(true);
-    try {
-      const r = await fetch(`/api/labels/${selectedTrack.spotifyId}/merge`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          takeIds: loadedTakes.map((t) => t.id),
-          granularity: "all_beats",
-        }),
-      });
-      if (!r.ok) {
-        const data = (await r.json().catch(() => ({}))) as { error?: string };
-        throw new Error(data.error ?? `HTTP ${r.status}`);
-      }
-      const data = (await r.json()) as { take: WireTake; bpm: number };
-      const refreshed = await refreshTakes(selectedTrack.spotifyId);
-      const created = refreshed.find((t) => t.id === data.take.id) ?? data.take;
-      switchTake(created.id);
-      toast.success(`Merged into take #${created.id} @ ${data.bpm.toFixed(1)} BPM`);
-    } catch (err) {
-      toast.error(`Merge failed: ${(err as Error).message}`);
-    } finally {
-      setMerging(false);
-    }
-  };
-
   return (
-    <main className="flex-1 mx-auto w-full max-w-5xl px-6 py-10 space-y-6">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">
-            Beat Labeling Studio
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Tap along to a Spotify track and save the beat positions.
-          </p>
-        </div>
-        <div className="flex flex-col items-end gap-1">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setCalibrationDialogOpen(true)}
-          >
-            Calibrate
-          </Button>
-          {calibration && (
-            <span className="text-xs text-muted-foreground tabular-nums">
-              offset {calibration.offsetMs.toFixed(1)} ms · sd{" "}
-              {calibration.sd.toFixed(1)} ms
-            </span>
-          )}
-        </div>
-      </header>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Search</CardTitle>
-          <CardDescription>Search Spotify for a track to label.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <SearchBar value={query} onChange={setQuery} />
-          <SearchResults
-            query={query}
-            onPick={setSelectedTrack}
-            selectedId={selectedTrack?.spotifyId ?? null}
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Player</CardTitle>
-          <CardDescription>
-            {selectedTrack
-              ? `${selectedTrack.name} — ${selectedTrack.artist}`
-              : "Pick a track from the search results."}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {selectedTrack ? (
-            <>
-              <SpotifyPlayer
-                trackId={selectedTrack.spotifyId}
-                onController={setController}
-              />
-              <div className="flex items-center justify-between gap-3">
-                <PlaybackCounter playback={playback} />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!controller}
-                  onClick={() => {
-                    if (!controller) return;
-                    playback.expectSeek();
-                    controller.restart();
-                  }}
-                  title="Restart the track from 0:00; markers are kept"
-                >
-                  Restart
-                </Button>
-              </div>
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Pick a track from the search results above.
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Timeline</CardTitle>
-              <CardDescription>
-                Press{" "}
-                <kbd className="rounded border bg-muted px-1.5 py-0.5 text-xs font-mono">
-                  Space
-                </kbd>{" "}
-                to record a beat. Click a marker to select; arrows nudge ±10 ms (±1 ms with shift); delete removes.
-              </CardDescription>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-muted-foreground tabular-nums">
-                {markerCount} marker{markerCount === 1 ? "" : "s"}
-                {dirtyCount > 0 ? ` · ${dirtyCount} unsaved` : ""}
-                {tempo
-                  ? ` · ${tempo.bpm.toFixed(1)} BPM${
-                      tempo.bpmSd != null ? ` ±${tempo.bpmSd.toFixed(1)}` : ""
-                    }`
-                  : ""}
-              </span>
-              {markerCount >= 4 ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setSnapDialogOpen(true)}
-                >
-                  Snap to grid
-                </Button>
-              ) : null}
-              {markerCount > 0 ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    activeTake.clearMarkers();
-                    setSelectedMarkerId(null);
-                  }}
-                >
-                  Clear
-                </Button>
-              ) : null}
-              <Button
-                size="sm"
-                disabled={saving || markerCount === 0 || !selectedTrack}
-                onClick={save}
+    <div className="flex flex-1 w-full overflow-hidden">
+      {/* ── LEFT: Studio panel (55%) ── */}
+      <div
+        className="flex flex-col w-[55%] overflow-y-auto p-6 gap-5"
+        style={{ borderRight: "1px solid var(--studio-border)" }}
+      >
+        {/* Calibration row */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {needsCalibration && (
+              <span
+                className="text-[10px] tracking-[0.15em] uppercase font-mono"
+                style={{ color: "oklch(0.704 0.191 22.216)" }}
               >
-                {saving ? "Saving…" : "Save"}
-              </Button>
-            </div>
+                calibration needed
+              </span>
+            )}
+            {calibration && (
+              <span
+                className="text-xs tabular-nums"
+                style={{ fontFamily: "var(--font-mono)", color: "var(--studio-muted-text)" }}
+              >
+                offset {calibration.offsetMs.toFixed(1)} ms · sd {calibration.sd.toFixed(1)} ms
+              </span>
+            )}
           </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {selectedTrack ? (
-            <>
+          <button
+            onClick={() => setCalibrationDialogOpen(true)}
+            className="p-1.5 rounded transition-all"
+            style={{ color: "var(--studio-muted-text)", border: "1px solid transparent" }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.color = "var(--studio-amber)";
+              (e.currentTarget as HTMLElement).style.borderColor = "var(--studio-border)";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLElement).style.color = "var(--studio-muted-text)";
+              (e.currentTarget as HTMLElement).style.borderColor = "transparent";
+            }}
+            title="Calibrate tap latency"
+          >
+            <Settings size={14} />
+          </button>
+        </div>
+
+        {/* Unified search / "now labeling" indicator */}
+        <SearchPanel
+          query={query}
+          onQueryChange={setQuery}
+          selectedTrack={selectedTrack}
+          onPick={setSelectedTrack}
+          onChangeTrack={() => setSelectedTrack(null)}
+        />
+
+        {selectedTrack && (
+          <>
+            {/* Track hero */}
+            <TrackHero track={selectedTrack} />
+
+            {/* Spotify player embed */}
+            <SpotifyPlayer
+              trackId={selectedTrack.spotifyId}
+              onController={setController}
+            />
+
+            {/* Playback status + restart */}
+            <div className="flex items-center justify-between">
+              <PlaybackCounter playback={playback} />
+              <button
+                disabled={!controller}
+                onClick={() => {
+                  if (!controller) return;
+                  playback.expectSeek();
+                  controller.restart();
+                }}
+                className="text-xs px-3 py-1.5 rounded transition-all disabled:opacity-30"
+                style={{
+                  border: "1px solid var(--studio-border)",
+                  color: "var(--studio-muted-text)",
+                  fontFamily: "var(--font-sans)",
+                }}
+                onMouseEnter={(e) => {
+                  if (controller) {
+                    (e.currentTarget as HTMLElement).style.borderColor = "rgba(240,160,32,0.4)";
+                    (e.currentTarget as HTMLElement).style.color = "var(--studio-warm-text)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.borderColor = "var(--studio-border)";
+                  (e.currentTarget as HTMLElement).style.color = "var(--studio-muted-text)";
+                }}
+                title="Restart the track from 0:00; markers are kept"
+              >
+                Restart
+              </button>
+            </div>
+
+            {/* Timeline + label */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div
+                    className="text-[10px] tracking-[0.15em] uppercase font-mono"
+                    style={{ color: "var(--studio-amber)" }}
+                  >
+                    Timeline
+                  </div>
+                  <div
+                    className="text-xs mt-0.5 tabular-nums"
+                    style={{ fontFamily: "var(--font-mono)", color: "var(--studio-muted-text)" }}
+                  >
+                    {markerCount} marker{markerCount === 1 ? "" : "s"}
+                    {dirtyCount > 0 ? ` · ${dirtyCount} unsaved` : ""}
+                    {tempo
+                      ? ` · ${tempo.bpm.toFixed(1)} BPM${tempo.bpmSd != null ? ` ±${tempo.bpmSd.toFixed(1)}` : ""}`
+                      : ""}
+                  </div>
+                </div>
+              </div>
               <Timeline
                 durationMs={durationMs}
                 takeRef={activeTake.takeRef}
@@ -399,60 +309,43 @@ export function StudioShell() {
                 selectedMarkerId={selectedMarkerId}
                 onSelectMarker={setSelectedMarkerId}
               />
-              <ClickTrackControls playback={playback} activeTake={activeTake} />
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Load a track to start labeling.
-            </p>
-          )}
-        </CardContent>
-      </Card>
+            </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Takes</CardTitle>
-          <CardDescription>
-            One row per labeling pass. Switching loads a take's markers into
-            the editor; saving always creates a new take.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {selectedTrack ? (
-            loadedTakes.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No saved takes yet — tap some beats and Save.
-                {merging ? " Merging…" : ""}
-              </p>
-            ) : (
-              <TakeTabs
-                takes={loadedTakes}
-                activeServerId={activeTakeServerId}
-                isNew={activeTakeServerId == null}
-                onSelect={switchTake}
-                onDelete={deleteTake}
-                onMerge={mergeTakes}
-              />
-            )
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Pick a track to see its takes.
-            </p>
-          )}
-        </CardContent>
-      </Card>
+            {/* Controls row */}
+            <ControlsBar
+              playback={playback}
+              activeTake={activeTake}
+              markerCount={markerCount}
+              saving={saving}
+              onSnap={() => setSnapDialogOpen(true)}
+              onClear={() => {
+                activeTake.clearMarkers();
+                setSelectedMarkerId(null);
+              }}
+              onSave={save}
+            />
+          </>
+        )}
+      </div>
 
+      {/* ── RIGHT: Library panel (45%) ── */}
+      <div className="flex flex-col w-[45%] overflow-hidden">
+        <LibraryPanel
+          refreshKey={libraryRefreshKey}
+          activeTrackId={selectedTrack?.spotifyId ?? null}
+          onLoadTrack={handleLoadLibraryTrack}
+          onDeleteTrack={handleDeleteLibraryTrack}
+        />
+      </div>
+
+      {/* Dialogs */}
       <CalibrationDialog
         open={calibrationOpen}
         onSave={(result) => {
           setCalibration(result);
           setCalibrationDialogOpen(false);
         }}
-        onCancel={
-          calibration
-            ? () => setCalibrationDialogOpen(false)
-            : undefined
-        }
+        onCancel={calibration ? () => setCalibrationDialogOpen(false) : undefined}
       />
 
       <SnapToGridDialog
@@ -464,6 +357,6 @@ export function StudioShell() {
           setSnapDialogOpen(false);
         }}
       />
-    </main>
+    </div>
   );
 }

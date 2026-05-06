@@ -12,7 +12,7 @@ type Props = {
   onSelectMarker: (id: string | null) => void;
 };
 
-const HEIGHT = 80;
+const HEIGHT = 140;
 const HIT_TOLERANCE_PX = 6;
 
 function drawStaticLayer(
@@ -26,35 +26,40 @@ function drawStaticLayer(
   ctx.save();
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, width, HEIGHT);
-  // Background
-  ctx.fillStyle = "rgba(0,0,0,0.03)";
+  // Background — dark gradient
+  const bg = ctx.createLinearGradient(0, 0, 0, HEIGHT);
+  bg.addColorStop(0, "#0a0805");
+  bg.addColorStop(1, "#050505");
+  ctx.fillStyle = bg;
   ctx.fillRect(0, 0, width, HEIGHT);
-  // Border
-  ctx.strokeStyle = "rgba(0,0,0,0.1)";
+  // Border — amber tint
+  ctx.strokeStyle = "rgba(240,160,32,0.15)";
+  ctx.lineWidth = 1;
   ctx.strokeRect(0.5, 0.5, width - 1, HEIGHT - 1);
   if (durationMs <= 0) {
     ctx.restore();
     return;
   }
-  // Tick marks every second; major every 10s
+  // Tick marks
   const seconds = durationMs / 1000;
   const minorEvery = seconds <= 60 ? 1 : seconds <= 300 ? 2 : 5;
   const majorEvery = seconds <= 60 ? 5 : seconds <= 300 ? 30 : 60;
-  ctx.fillStyle = "rgba(0,0,0,0.5)";
-  ctx.font = "10px system-ui, sans-serif";
+  ctx.font = "10px 'JetBrains Mono', monospace";
   ctx.textBaseline = "top";
+  ctx.fillStyle = "rgba(240,160,32,0.6)";
   for (let s = 0; s <= seconds; s += minorEvery) {
     const x = (s / seconds) * width;
     const isMajor = s % majorEvery === 0;
-    ctx.strokeStyle = isMajor ? "rgba(0,0,0,0.4)" : "rgba(0,0,0,0.15)";
+    ctx.strokeStyle = isMajor ? "rgba(240,160,32,0.35)" : "rgba(240,160,32,0.12)";
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(x, isMajor ? 0 : HEIGHT - 12);
+    ctx.moveTo(x, isMajor ? 0 : HEIGHT - 14);
     ctx.lineTo(x, HEIGHT);
     ctx.stroke();
-    if (isMajor && x > 4 && x < width - 30) {
+    if (isMajor && x > 4 && x < width - 36) {
       const minutes = Math.floor(s / 60);
       const secs = Math.floor(s % 60);
-      ctx.fillText(`${minutes}:${secs.toString().padStart(2, "0")}`, x + 2, 2);
+      ctx.fillText(`${minutes}:${secs.toString().padStart(2, "0")}`, x + 3, 4);
     }
   }
   ctx.restore();
@@ -78,35 +83,52 @@ function drawOverlayLayer(
     ctx.restore();
     return;
   }
-  // Markers
+  // Markers — amber oscilloscope spikes
   for (const m of markers) {
     const x = (m.timeMs / durationMs) * width;
     const isSelected = m.id === selectedId;
-    ctx.strokeStyle = isSelected ? "#0a84ff" : m.dirty ? "#f59e0b" : "#0f172a";
-    ctx.lineWidth = isSelected ? 3 : 2;
-    ctx.beginPath();
-    ctx.moveTo(x, 6);
-    ctx.lineTo(x, HEIGHT - 6);
-    ctx.stroke();
+    const color = isSelected ? "#fff8f0" : m.dirty ? "#f0c050" : "#f0a020";
+
+    // Selected: soft highlight fill
     if (isSelected) {
-      ctx.fillStyle = "rgba(10, 132, 255, 0.15)";
-      ctx.fillRect(x - 5, 6, 10, HEIGHT - 12);
+      ctx.fillStyle = "rgba(255,248,240,0.06)";
+      ctx.fillRect(x - 6, 8, 12, HEIGHT - 16);
     }
+
+    // Glow halo — wide, dim
+    ctx.strokeStyle = isSelected ? "rgba(255,248,240,0.10)" : "rgba(240,160,32,0.08)";
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.moveTo(x, 10);
+    ctx.lineTo(x, HEIGHT - 10);
+    ctx.stroke();
+
+    // Sharp spike
+    ctx.strokeStyle = color;
+    ctx.lineWidth = isSelected ? 2.5 : 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x, 8);
+    ctx.lineTo(x, HEIGHT - 8);
+    ctx.stroke();
   }
-  // Playhead
+
+  // Playhead — dashed red
   const px = Math.min(width, Math.max(0, (playheadMs / durationMs) * width));
-  ctx.strokeStyle = "#dc2626";
+  ctx.strokeStyle = "#e03030";
   ctx.lineWidth = 1.5;
+  ctx.setLineDash([4, 3]);
   ctx.beginPath();
   ctx.moveTo(px, 0);
   ctx.lineTo(px, HEIGHT);
   ctx.stroke();
-  // Caret
-  ctx.fillStyle = "#dc2626";
+  ctx.setLineDash([]);
+
+  // Playhead caret
+  ctx.fillStyle = "#e03030";
   ctx.beginPath();
-  ctx.moveTo(px - 4, 0);
-  ctx.lineTo(px + 4, 0);
-  ctx.lineTo(px, 5);
+  ctx.moveTo(px - 5, 0);
+  ctx.lineTo(px + 5, 0);
+  ctx.lineTo(px, 7);
   ctx.closePath();
   ctx.fill();
   ctx.restore();

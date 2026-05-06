@@ -17,6 +17,7 @@ const trackInput = z.object({
   artist: z.string().min(1).max(500),
   album: z.string().max(500).nullable().optional(),
   durationMs: z.number().int().positive(),
+  coverUrl: z.string().url().nullable().optional(),
 });
 
 const bodySchema = z.object({
@@ -59,12 +60,14 @@ export async function POST(req: Request, ctx: Ctx) {
       artist: data.track.artist,
       album: data.track.album ?? null,
       durationMs: data.track.durationMs,
+      coverUrl: data.track.coverUrl ?? null,
     },
     update: {
       name: data.track.name,
       artist: data.track.artist,
       album: data.track.album ?? null,
       durationMs: data.track.durationMs,
+      coverUrl: data.track.coverUrl ?? null,
     },
   });
 

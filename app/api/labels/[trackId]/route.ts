@@ -28,6 +28,7 @@ export async function GET(_req: Request, ctx: Ctx) {
           artist: track.artist,
           album: track.album,
           durationMs: track.durationMs,
+          coverUrl: track.coverUrl ?? null,
         }
       : null,
     takes: takes.map(takeFromDb),
