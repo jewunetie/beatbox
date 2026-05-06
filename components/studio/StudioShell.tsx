@@ -319,9 +319,9 @@ export function StudioShell() {
                   onClick={() => {
                     if (!controller) return;
                     playback.expectSeek();
-                    controller.seek(0);
+                    controller.restart();
                   }}
-                  title="Seek the iframe back to 0:00; markers are kept"
+                  title="Restart the track from 0:00; markers are kept"
                 >
                   Restart
                 </Button>

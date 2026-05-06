@@ -21,8 +21,12 @@ export type SpotifyEventListener<T = unknown> = (event: T) => void;
 export interface SpotifyController {
   play(): void;
   pause(): void;
+  resume(): void;
   togglePlay(): void;
-  seek(positionMs: number): void;
+  restart(): void;
+  playFromStart(): void;
+  /** Position in seconds */
+  seek(timestampInSeconds: number): void;
   loadUri(uri: string): void;
   setVolume(volume: number): void;
   destroy(): void;

@@ -22,7 +22,7 @@ export type Playback = {
   /**
    * Deliberate seek: skip the next playback_update's seek-detection so unsaved
    * taps captured against the current epoch survive (e.g. the Restart button).
-   * Pair with controller.seek(positionMs).
+   * Pair with controller.restart() or controller.seek(seconds).
    */
   expectSeek: () => void;
 };
